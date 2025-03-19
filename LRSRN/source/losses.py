@@ -4,51 +4,8 @@ import torch.nn.functional as F
 import numpy as np
 import torchvision
 import segmentation_models_pytorch as smp
+import lpips
 
-
-class VGG(nn.Module):
-    def __init__(self, device):
-        super(VGG, self).__init__()
-        vgg16 = torchvision.models.vgg16(pretrained=True).to(device)
-        self.vgg16_conv_4_3 = torch.nn.Sequential(*list(vgg16.children())[0][:22])
-        for param in self.vgg16_conv_4_3.parameters():
-            param.requires_grad = False
-
-    def forward(self, output, gt):
-        vgg_output = self.vgg16_conv_4_3(output)
-        with torch.no_grad():
-            vgg_gt = self.vgg16_conv_4_3(gt.detach())
-
-        loss = F.mse_loss(vgg_output, vgg_gt)
-
-        return loss
-        
-# class VGG_gram(nn.Module):
-#     def __init__(self):
-#         super(VGG_gram, self).__init__()
-#         vgg16 = torchvision.models.vgg16(pretrained=True).to(device)
-#         self.vgg16_conv_4_3 = torch.nn.Sequential(*list(vgg16.children())[0][:22])
-#         for param in self.vgg16_conv_4_3.parameters():
-#             param.requires_grad = False
-    
-#     def gram_matrix(self, x):
-#         n, c, h, w = x.size()
-#         x = x.view(n*c, h*w)
-#         gram = torch.mm(x,x.t()) # 행렬간 곱셈 수행
-#         return gram
-
-
-#     def forward(self, output, gt):
-#         vgg_output = self.vgg16_conv_4_3(output)
-#         vgg_output = self.gram_matrix(vgg_output)
-
-#         with torch.no_grad():
-#             vgg_gt = self.vgg16_conv_4_3(gt.detach())
-#             vgg_gt = self.gram_matrix(vgg_gt)
-            
-#         loss = F.mse_loss(vgg_output, vgg_gt)
-
-#         return loss
 
 class PSNRLoss(nn.Module):
 
@@ -76,6 +33,72 @@ class PSNRLoss(nn.Module):
         assert len(pred.size()) == 4
 
         return self.loss_weight * self.scale * torch.log(((pred - target) ** 2).mean(dim=(1, 2, 3)) + 1e-8).mean()
+
+
+class VGG(nn.Module):
+    def __init__(self, device):
+        super(VGG, self).__init__()
+        vgg16 = torchvision.models.vgg16(pretrained=True).to(device)
+        self.vgg16_conv_4_3 = torch.nn.Sequential(*list(vgg16.children())[0][:22])
+        for param in self.vgg16_conv_4_3.parameters():
+            param.requires_grad = False
+
+    def forward(self, output, gt):
+        vgg_output = self.vgg16_conv_4_3(output)
+        with torch.no_grad():
+            vgg_gt = self.vgg16_conv_4_3(gt.detach())
+
+        loss = F.mse_loss(vgg_output, vgg_gt)
+
+        return loss
+
+
+class LPIPSLoss(nn.Module):
+    def __init__(self, net='vgg', device='cuda'):
+        super(LPIPSLoss, self).__init__()
+        # Initialize LPIPS with chosen backbone ('vgg', 'alex', or 'squeeze')
+        self.loss_fn = lpips.LPIPS(net=net).to(device)
+        # LPIPS models have requires_grad=False by default (frozen)
+        for param in self.loss_fn.parameters():
+            param.requires_grad = False
+
+    def forward(self, pred, target):
+        # LPIPS expects inputs normalized to [-1, 1]
+        # If your images are in [0, 1], scale them
+        if pred.min() >= 0 and pred.max() <= 1:
+            pred = pred * 2 - 1
+            target = target * 2 - 1
+
+        loss = self.loss_fn(pred, target)
+        # LPIPS returns a tensor of shape [N, 1, 1, 1]; squeeze it
+        return loss.mean()
+        
+# class VGG_gram(nn.Module):
+#     def __init__(self):
+#         super(VGG_gram, self).__init__()
+#         vgg16 = torchvision.models.vgg16(pretrained=True).to(device)
+#         self.vgg16_conv_4_3 = torch.nn.Sequential(*list(vgg16.children())[0][:22])
+#         for param in self.vgg16_conv_4_3.parameters():
+#             param.requires_grad = False
+    
+#     def gram_matrix(self, x):
+#         n, c, h, w = x.size()
+#         x = x.view(n*c, h*w)
+#         gram = torch.mm(x,x.t()) # 행렬간 곱셈 수행
+#         return gram
+
+
+#     def forward(self, output, gt):
+#         vgg_output = self.vgg16_conv_4_3(output)
+#         vgg_output = self.gram_matrix(vgg_output)
+
+#         with torch.no_grad():
+#             vgg_gt = self.vgg16_conv_4_3(gt.detach())
+#             vgg_gt = self.gram_matrix(vgg_gt)
+            
+#         loss = F.mse_loss(vgg_output, vgg_gt)
+
+#         return loss
     
 def get_criterion(cfg, device):
     if cfg.loss == 'l1':
@@ -86,6 +109,8 @@ def get_criterion(cfg, device):
         return VGG(device)
     elif cfg.loss == 'psnr_loss':
         return PSNRLoss().cuda(device)
+    elif cfg.loss == 'lpips':
+        return LPIPSLoss(net='vgg', device=device)
     else: 
         raise NameError('Choose proper model name!!!')
 
