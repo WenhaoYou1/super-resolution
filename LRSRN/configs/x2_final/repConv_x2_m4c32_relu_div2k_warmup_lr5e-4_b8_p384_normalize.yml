@@ -47,6 +47,9 @@ normalize: True
 threads: 1
 
 ## data specification
-data_path: '/dataset/SR/RLSR/DIV2K_X2/'
-test_path: '/dataset/SR/RLSR/val_phase_X2/'
+
+data_path: "C:/Users/zh321/Github/simple_real_time_super_resolution/dataset/SR/RLSR/DIV2K_X2"
+test_path: "C:/Users/zh321/Github/simple_real_time_super_resolution/dataset/SR/RLSR/val_phase_X2"
+#data_path: '/dataset/SR/RLSR/DIV2K_X2/'
+#test_path: '/dataset/SR/RLSR/val_phase_X2/'
 eval_sets: ['DIV2K']
