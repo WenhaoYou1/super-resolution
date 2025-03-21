@@ -111,8 +111,67 @@ def get_criterion(cfg, device):
         return PSNRLoss().cuda(device)
     elif cfg.loss == 'lpips':
         return LPIPSLoss(net='vgg', device=device)
-    else: 
+    
+    elif cfg.loss == 'dwa':
+        return dwa(num_losses=5, device=device)
+    else:
         raise NameError('Choose proper model name!!!')
+
+
+class DynamicWeightAveraging:
+    def __init__(self, num_losses, device):
+        self.T = 2.0
+        self.num_losses = num_losses
+        self.loss_history = [None, None]
+        self.losses = ['l1', 'l2', 'vgg', 'psnr_loss', 'lpips'] 
+        self.loss_function = self._initialize_losses(self.losses, device)
+
+    def _initialize_losses(self, losses, device):
+        loss_funcs = []
+        for loss_type in losses:
+            loss_funcs.append(get_criterion({'loss': loss_type}, device))
+        return loss_funcs
+
+    def update_weights(self):
+        if self.loss_history[-1] is None or self.loss_history[-2] is None:
+            return [1.0 for _ in range(self.num_losses)]
+
+        loss_ratios = []
+        for i in range(self.num_losses):
+            ratio = self.loss_history[-1][i] / (self.loss_history[-2][i] + 1e-8)
+            loss_ratios.append(ratio)
+
+        loss_ratios = np.array(loss_ratios)
+        exp_ratios = np.exp(loss_ratios / self.T)
+        weights = self.num_losses * exp_ratios / np.sum(exp_ratios)
+        return weights.tolist()
+
+    def step(self, current_losses):
+        self.loss_history[-2] = self.loss_history[-1]
+        self.loss_history[-1] = current_losses
+
+    def compute_losses(self, model_output, target, mask=None):
+        losses = []
+        for loss_func in self.loss_function:
+            loss = loss_func(model_output, target) 
+            losses.append(loss.item())
+        return losses
+
+
+class dwa(nn.Module):
+    def __init__(self, num_losses, device):
+        super(dwa, self).__init__()
+        self.dwa = DynamicWeightAveraging(num_losses=num_losses, device=device)
+        self.loss_function = self.dwa.loss_function
+
+    def forward(self, output, target):
+        losses = self.dwa.compute_losses(output, target)
+        weights = self.dwa.update_weights()
+        weighted_loss = sum(w * l for w, l in zip(weights, losses))
+        self.dwa.step([loss for loss in losses])
+        return weighted_loss
+
+
 
 if __name__ == "__main__":
     # true = np.array([1.0, 1.2, 1.1, 1.4, 1.5, 1.8, 1.9])
