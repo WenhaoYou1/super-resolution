@@ -129,11 +129,12 @@ class DynamicWeightAveraging:
     def _initialize_losses(self, losses, device):
         loss_funcs = []
         for loss_type in losses:
-            loss_funcs.append(get_criterion({'loss': loss_type}, device))
+            loss_funcs.append(get_criterion(loss_type, device))
         return loss_funcs
 
     def update_weights(self):
         if self.loss_history[-1] is None or self.loss_history[-2] is None:
+
             return [1.0 for _ in range(self.num_losses)]
 
         loss_ratios = []
@@ -153,10 +154,9 @@ class DynamicWeightAveraging:
     def compute_losses(self, model_output, target, mask=None):
         losses = []
         for loss_func in self.loss_function:
-            loss = loss_func(model_output, target) 
-            losses.append(loss.item())
+            loss = loss_func(model_output, target)
+            losses.append(loss)
         return losses
-
 
 class dwa(nn.Module):
     def __init__(self, num_losses, device):
@@ -167,9 +167,10 @@ class dwa(nn.Module):
     def forward(self, output, target):
         losses = self.dwa.compute_losses(output, target)
         weights = self.dwa.update_weights()
-        weighted_loss = sum(w * l for w, l in zip(weights, losses))
-        self.dwa.step([loss for loss in losses])
+        weighted_loss = sum(w * l.item() for w, l in zip(weights, losses))
+        self.dwa.step([l.item() for l in losses])
         return weighted_loss
+
 
 
 
