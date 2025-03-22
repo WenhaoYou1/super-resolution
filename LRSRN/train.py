@@ -38,6 +38,11 @@ except:
     anonymous = "must"
     print('To use your W&B account,\nGo to Add-ons -> Secrets and provide your W&B access token. Use the Label name as WANDB. \nGet your W&B access token from here: https://wandb.ai/authorize')
 
+# ------------------------- #
+# Initialize LPIPS model with AlexNet backbone and move it to GPU
+lpips_model = lpips.LPIPS(net='alex').cuda()
+# ------------------------- #
+
 parser = argparse.ArgumentParser(description='Simple Super Resolution')
 ## yaml configuration files
 parser.add_argument('--config', type=str, default='./configs/x2/repConv_x2_m4c32_relu_div2k_warmup_lr5e-4_b8_p384_normalize.yml', help = 'pre-config file for training')
@@ -156,10 +161,7 @@ if __name__ == '__main__':
         epoch_loss = 0.0
         stat_dict['epochs'] = epoch
         model = model.train()
-        #opt_lr = scheduler.get_last_lr()
         pbar = tqdm(enumerate(train_dataloader), total=len(train_dataloader), desc='Train {}:'.format(args.model))
-        #print('##===========training, Epoch: {}, lr: {} =============##'.format(epoch, opt_lr))
-        #for iter, batch in enumerate(train_dataloader):
         mem = torch.cuda.memory_reserved(device=args.gpu_ids) / 1E9 if torch.cuda.is_available() else 0
         try:
             current_lr = scheduler.get_lr()[0]
@@ -170,26 +172,15 @@ if __name__ == '__main__':
             if args.mixed_pred:
                 lr, hr = data
                 lr, hr = lr.to(device), hr.to(device)
-                ###Use Unscaled Gradiendts instead of 
-                ### https://pytorch.org/docs/stable/notes/amp_examples.html#amp-examples
                 with amp.autocast(enabled=True):
                     sr = model(lr)
-                    #_pred = torch.clamp(_pred, 0, 1)
                     loss = loss_func(sr, hr)   
                 scaler.scale(loss).backward()
-                
-                # Unscales the gradients of optimizer's assigned params i100n-place
                 scaler.unscale_(optimizer)
-                # Since the gradients of optimizer's assigned params are unscaled, clips as usual:
                 torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm)
-
-                # optimizer's gradients are already unscaled, so scaler.step does not unscale them,
-                # although it still skips optimizer.step() if the gradients contain infs or NaNs.
                 scaler.step(optimizer)
-
-                # Updates the scale for next iteration.
                 scaler.update()
-                optimizer.zero_grad() # set_to_none=True here can modestly improve performance
+                optimizer.zero_grad()
             else: 
                 optimizer.zero_grad()
                 lr, hr = data
@@ -199,63 +190,93 @@ if __name__ == '__main__':
                 loss.backward()
                 optimizer.step()
             epoch_loss += float(loss)
-
+    
             pbar.set_postfix(epoch=f'{epoch}',
                 train_loss=f'{epoch_loss/(step+1):0.4f}',
                 lr=f'{current_lr:0.5f}', 
                 gpu_mem=f'{mem:0.2f} GB')
         
         if args.wandb:
-            # Log the metrics
             wandb.log({"train/Loss": epoch_loss/len(train_dataloader),  
-                "train/LR":current_lr})
-
+                       "train/LR": current_lr})
+    
         if epoch % args.test_every == 0:
             torch.set_grad_enabled(False)
             test_log = ''
             model = model.eval()
             for valid_dataloader in valid_dataloaders:
                 avg_psnr, avg_ssim = 0.0, 0.0
+                avg_uqi, avg_lpips, avg_niqe, avg_pique = 0.0, 0.0, 0.0, 0.0
+    
                 name = valid_dataloader['name']
                 loader = valid_dataloader['dataloader']
                 count = 0
                 
                 pbar = tqdm(loader, total=len(loader), desc='Valid: {}'.format(args.model))
                 
-                #for lr, hr in tqdm(loader, ncols=80):
                 for lr, hr in pbar:
                     lr, hr = lr.to(device), hr.to(device)
                     sr = model(lr)
-  
+    
                     if args.normalize:
                         hr = hr.clamp(0, 1) * 255
                         sr = sr.clamp(0, 1) * 255
                     else: 
                         hr = hr.clamp(0, 255)
                         sr = sr.clamp(0, 255)
-
-                    # calculate psnr and ssim
+    
                     psnr = utils.calc_psnr(sr, hr)       
                     ssim = utils.calc_ssim(sr, hr)         
                     avg_psnr += psnr
                     avg_ssim += ssim
-                    
+    
+                    # 新增指标计算
+                    sr_img = sr[0].detach().cpu().clamp(0, 255).numpy().transpose(1, 2, 0).astype(np.uint8)
+                    hr_img = hr[0].detach().cpu().clamp(0, 255).numpy().transpose(1, 2, 0).astype(np.uint8)
+    
+                    # UIQI
+                    uqi_val = uqi(hr_img, sr_img)
+                    avg_uqi += uqi_val
+    
+                    # LPIPS
+                    sr_lpips = sr[0].div(255.).unsqueeze(0)
+                    hr_lpips = hr[0].div(255.).unsqueeze(0)
+                    lpips_val = lpips_fn(sr_lpips.to(device), hr_lpips.to(device)).item()
+                    avg_lpips += lpips_val
+    
+                    # NIQE & PIQUE (基于 PIL 图像)
+                    sr_pil = to_pil_image(sr[0].div(255.))
+                    niqe_val = skimage.metrics.niqe(np.array(sr_pil))
+                    avg_niqe += niqe_val
+                    pique_val = brisque.score(sr_pil)
+                    avg_pique += pique_val
+    
                     count += 1
                     if args.save_val_image and count < 20:
                         fname = str(count + 801).zfill(4) + '.jpg'
-                        save_img(os.path.join(experiment_model_path,'./result_img/', str(epoch)+'_rec', fname), sr[0].cpu().numpy().transpose(1,2,0).astype(np.uint8), color_domain='rgb')
+                        save_img(os.path.join(experiment_model_path, './result_img/', str(epoch)+'_rec', fname),
+                                 sr[0].cpu().numpy().transpose(1, 2, 0).astype(np.uint8), color_domain='rgb')
                     pbar.set_postfix(epoch=f'{epoch}', psnr=f'{psnr:0.2f}')
-                    
+                
                 avg_psnr = round(avg_psnr/len(loader) + 5e-3, 2)
                 avg_ssim = round(avg_ssim/len(loader) + 5e-5, 4)
+                avg_uqi = round(avg_uqi/len(loader) + 1e-5, 4)
+                avg_lpips = round(avg_lpips/len(loader) + 1e-5, 4)
+                avg_niqe = round(avg_niqe/len(loader) + 1e-5, 4)
+                avg_pique = round(avg_pique/len(loader) + 1e-5, 4)
+    
+                # 存入 stat_dict
                 stat_dict[name]['psnrs'].append(avg_psnr)
                 stat_dict[name]['ssims'].append(avg_ssim)
+                stat_dict[name]['uqis'].append(avg_uqi)
+                stat_dict[name]['lpips'].append(avg_lpips)
+                stat_dict[name]['niqes'].append(avg_niqe)
+                stat_dict[name]['piques'].append(avg_pique)
+    
                 if stat_dict[name]['best_psnr']['value'] < avg_psnr:
                     stat_dict[name]['best_psnr']['value'] = avg_psnr
                     stat_dict[name]['best_psnr']['epoch'] = epoch
-                    
-                    saved_model_path = os.path.join(experiment_model_path, 'model_x{}_best.pt'.format(args.scale))
-                    
+                    saved_model_path = os.path.join(experiment_model_path, f'model_x{args.scale}_best.pt')
                     torch.save({
                         'epoch': epoch,
                         'model_state_dict': model.state_dict(),
@@ -263,42 +284,46 @@ if __name__ == '__main__':
                         'scheduler_state_dict': scheduler.state_dict(),
                         'stat_dict': stat_dict
                     }, saved_model_path)
-                    
-                    saved_model_path = os.path.join(experiment_model_path, 'model_x{}_best_submission.pt'.format(args.scale))
-                    
+    
+                    saved_model_path = os.path.join(experiment_model_path, f'model_x{args.scale}_best_submission.pt')
                     torch.save(model.state_dict(), saved_model_path)
-                    
-                    saved_model_path = os.path.join(experiment_model_path, 'model_x{}_best_submission_deploy.pt'.format(args.scale))
-                    
+    
+                    saved_model_path = os.path.join(experiment_model_path, f'model_x{args.scale}_best_submission_deploy.pt')
                     model_deploy = copy.deepcopy(model)
                     model_deploy.fuse_model()
                     torch.save(model_deploy.state_dict(), saved_model_path)
-                    
+    
                     if args.wandb:
-                        wandb.summary["Best PSNR"]      = avg_psnr
-                        wandb.summary["Best SSIM"]      = avg_ssim
-                        wandb.summary["Best Epoch"]     = epoch
+                        wandb.summary["Best PSNR"] = avg_psnr
+                        wandb.summary["Best SSIM"] = avg_ssim
+                        wandb.summary["Best Epoch"] = epoch
+    
                 if stat_dict[name]['best_ssim']['value'] < avg_ssim:
                     stat_dict[name]['best_ssim']['value'] = avg_ssim
                     stat_dict[name]['best_ssim']['epoch'] = epoch
+    
                 test_log += '[{}-X{}], PSNR/SSIM: {:.2f}/{:.4f} (Best: {:.2f}/{:.4f}, Epoch: {}/{})\n'.format(
                     name, args.scale, float(avg_psnr), float(avg_ssim), 
                     stat_dict[name]['best_psnr']['value'], stat_dict[name]['best_ssim']['value'], 
                     stat_dict[name]['best_psnr']['epoch'], stat_dict[name]['best_ssim']['epoch'])
-            
-            if args.wandb:
-                # Log the metrics
-                wandb.log({
-                    "val/Valid PSNR {} - ".format(name): avg_psnr,
-                    "val/Valid SSIM {} - ".format(name): avg_ssim,
+    
+                test_log += 'UQI/LPIPS/NIQE/PIQUE: {:.4f}/{:.4f}/{:.2f}/{:.2f}\n'.format(
+                    avg_uqi, avg_lpips, avg_niqe, avg_pique)
+    
+                if args.wandb:
+                    wandb.log({
+                        f"val/Valid PSNR {name} - ": avg_psnr,
+                        f"val/Valid SSIM {name} - ": avg_ssim,
+                        f"val/UQI {name} - ": avg_uqi,
+                        f"val/LPIPS {name} - ": avg_lpips,
+                        f"val/NIQE {name} - ": avg_niqe,
+                        f"val/PIQUE {name} - ": avg_pique,
                     })
-            
-            # print log & flush out
+    
             print(test_log)
             sys.stdout.flush()
-            # save model
-            saved_model_path = os.path.join(experiment_model_path, 'model_x{}_last.pt'.format(args.scale))
-            # torch.save(model.state_dict(), saved_model_path)
+    
+            saved_model_path = os.path.join(experiment_model_path, f'model_x{args.scale}_last.pt')
             torch.save({
                 'epoch': epoch,
                 'model_state_dict': model.state_dict(),
@@ -306,14 +331,10 @@ if __name__ == '__main__':
                 'scheduler_state_dict': scheduler.state_dict(),
                 'stat_dict': stat_dict
             }, saved_model_path)
-            
-            
+    
             torch.set_grad_enabled(True)
-            # save stat dict
-            ## save training paramters
             stat_dict_name = os.path.join(experiment_path, 'stat_dict.yml')
             with open(stat_dict_name, 'w') as stat_dict_file:
                 yaml.dump(stat_dict, stat_dict_file, default_flow_style=False)
-        ## update scheduler
-        scheduler.step()
     
+        scheduler.step()
