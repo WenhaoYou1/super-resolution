@@ -113,11 +113,11 @@ if __name__ == '__main__':
         wandb.watch(model, criterion=loss_func, log='all')
 
 
-# ------------------------- #
-# Initialize LPIPS model with AlexNet backbone and move it to GPU
-lpips_fn = lpips.LPIPS(net='vgg').to(device)
-lpips_fn.eval()
-# ------------------------- #
+    # ---------------------------------------------------------- #
+    # Initialize LPIPS model with AlexNet backbone and move it to GPU
+    lpips_fn = lpips.LPIPS(net='vgg').to(device)
+    lpips_fn.eval()
+    # ---------------------------------------------------------- #
 
     ## resume training
     start_epoch = 1
