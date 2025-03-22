@@ -141,7 +141,10 @@ if __name__ == '__main__':
         exp_params_name = os.path.join(experiment_path, 'config.yml')
         with open(exp_params_name, 'w') as exp_params_file:
             yaml.dump(exp_params, exp_params_file, default_flow_style=False)
-    
+
+
+    ## print architecture of model
+    time.sleep(3) # sleep 3 seconds 
     sys.stdout = utils.ExperimentLogger(log_name, sys.stdout)
     print(model)
     sys.stdout.flush()
@@ -170,11 +173,19 @@ if __name__ == '__main__':
                     sr = model(lr)
                     loss = loss_func(sr, hr)
                 scaler.scale(loss).backward()
+
+                # Unscales the gradients of optimizer's assigned params i100n-place
                 scaler.unscale_(optimizer)
+                # Since the gradients of optimizer's assigned params are unscaled, clips as usual:
                 torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm)
+
+                # optimizer's gradients are already unscaled, so scaler.step does not unscale them,
+                # although it still skips optimizer.step() if the gradients contain infs or NaNs.
                 scaler.step(optimizer)
+
+                # Updates the scale for next iteration.
                 scaler.update()
-                optimizer.zero_grad()
+                optimizer.zero_grad() # set_to_none=True here can modestly improve performance
             else:
                 optimizer.zero_grad()
                 lr, hr = data
@@ -185,24 +196,35 @@ if __name__ == '__main__':
                 optimizer.step()
             epoch_loss += float(loss)
     
-            pbar.set_postfix(epoch=f'{epoch}', train_loss=f'{epoch_loss/(step+1):0.4f}', lr=f'{current_lr:0.5f}', gpu_mem=f'{mem:0.2f} GB')
+            pbar.set_postfix(epoch=f'{epoch}', 
+                             train_loss=f'{epoch_loss/(step+1):0.4f}', 
+                             lr=f'{current_lr:0.5f}', 
+                             gpu_mem=f'{mem:0.2f} GB')
     
         if args.wandb:
-            wandb.log({"train/Loss": epoch_loss/len(train_dataloader), "train/LR": current_lr})
+            # Log the metrics
+            wandb.log({"train/Loss": epoch_loss/len(train_dataloader), 
+                       "train/LR": current_lr})
     
         if epoch % args.test_every == 0:
             torch.set_grad_enabled(False)
             test_log = ''
             model = model.eval()
+
+            #------------------Initial the score-----------------------#
             for valid_dataloader in valid_dataloaders:
                 avg_psnr, avg_ssim = 0.0, 0.0
-                avg_uqi, avg_lpips, avg_niqe, avg_pique = 0.0, 0.0, 0.0, 0.0
-    
+
+                avg_uqi, avg_lpips, avg_niqe, avg_brisque = 0.0, 0.0, 0.0, 0.0
+            #----------------------------------------------------------#
+                
                 name = valid_dataloader['name']
                 loader = valid_dataloader['dataloader']
                 count = 0
+                
                 pbar = tqdm(loader, total=len(loader), desc='Valid: {}'.format(args.model))
-    
+
+                #for lr, hr in tqdm(loader, ncols=80):
                 for lr, hr in pbar:
                     lr, hr = lr.to(device), hr.to(device)
                     sr = model(lr)
@@ -213,7 +235,9 @@ if __name__ == '__main__':
                     else:
                         hr = hr.clamp(0, 255)
                         sr = sr.clamp(0, 255)
-    
+
+                    
+                #---------------------Calculate the scores----------------------#
                     psnr = utils.calc_psnr(sr, hr)
                     ssim = utils.calc_ssim(sr, hr)
                     avg_psnr += psnr
@@ -233,29 +257,36 @@ if __name__ == '__main__':
                     sr_pil = to_pil_image(sr[0].div(255.))
                     niqe_val = skimage.metrics.niqe(np.array(sr_pil))
                     avg_niqe += niqe_val
-                    pique_val = brisque.score(sr_pil)
-                    avg_pique += pique_val
-    
+                    brisque_val = brisque.score(sr_pil)
+                    avg_brisque += brisque_val
+                #----------------------------------------------------------#
+                    
                     count += 1
                     if args.save_val_image and count < 20:
                         fname = str(count + 801).zfill(4) + '.jpg'
                         save_img(os.path.join(experiment_model_path, './result_img/', str(epoch)+'_rec', fname), sr_img, color_domain='rgb')
                     pbar.set_postfix(epoch=f'{epoch}', psnr=f'{psnr:0.2f}')
-    
+
+                
+                #----------------------------------------------------------#
                 avg_psnr = round(avg_psnr/len(loader) + 5e-3, 2)
                 avg_ssim = round(avg_ssim/len(loader) + 5e-5, 4)
                 avg_uqi = round(avg_uqi/len(loader) + 1e-5, 4)
                 avg_lpips = round(avg_lpips/len(loader) + 1e-5, 4)
                 avg_niqe = round(avg_niqe/len(loader) + 1e-5, 4)
-                avg_pique = round(avg_pique/len(loader) + 1e-5, 4)
+                avg_brisque = round(avg_brisque/len(loader) + 1e-5, 4)
     
                 stat_dict[name]['psnrs'].append(avg_psnr)
                 stat_dict[name]['ssims'].append(avg_ssim)
                 stat_dict[name]['uqis'].append(avg_uqi)
                 stat_dict[name]['lpips'].append(avg_lpips)
                 stat_dict[name]['niqes'].append(avg_niqe)
-                stat_dict[name]['piques'].append(avg_pique)
-    
+                stat_dict[name]['brisques'].append(avg_brisque)
+                #----------------------------------------------------------#
+
+
+
+                #--------------------Update Best Scores--------------------------#
                 if stat_dict[name]['best_psnr']['value'] < avg_psnr:
                     stat_dict[name]['best_psnr']['value'] = avg_psnr
                     stat_dict[name]['best_psnr']['epoch'] = epoch
@@ -280,7 +311,12 @@ if __name__ == '__main__':
                         wandb.summary["Best PSNR"] = avg_psnr
                         wandb.summary["Best SSIM"] = avg_ssim
                         wandb.summary["Best Epoch"] = epoch
-    
+                        wandb.summary[f"Best UQI"] = avg_uqi
+                        wandb.summary[f"Best LPIPS {name}"] = avg_lpips
+                        wandb.summary[f"Best NIQE {name}"] = avg_niqe
+                        wandb.summary[f"Best BRIQUE {name}"] = avg_brisque
+
+                        
                 if stat_dict[name]['best_ssim']['value'] < avg_ssim:
                     stat_dict[name]['best_ssim']['value'] = avg_ssim
                     stat_dict[name]['best_ssim']['epoch'] = epoch
@@ -297,17 +333,39 @@ if __name__ == '__main__':
                     stat_dict[name]['best_niqe']['value'] = avg_niqe
                     stat_dict[name]['best_niqe']['epoch'] = epoch
     
-                if avg_pique < stat_dict[name]['best_pique']['value']:
-                    stat_dict[name]['best_pique']['value'] = avg_pique
-                    stat_dict[name]['best_pique']['epoch'] = epoch
-    
+                if avg_brisque < stat_dict[name]['best_brisque']['value']:
+                    stat_dict[name]['best_brisque']['value'] = avg_brisque
+                    stat_dict[name]['best_brisque']['epoch'] = epoch
+         
+               
                 test_log += '[{}-X{}], PSNR/SSIM: {:.2f}/{:.4f} (Best: {:.2f}/{:.4f}, Epoch: {}/{})\n'.format(
                     name, args.scale, float(avg_psnr), float(avg_ssim), 
                     stat_dict[name]['best_psnr']['value'], stat_dict[name]['best_ssim']['value'], 
                     stat_dict[name]['best_psnr']['epoch'], stat_dict[name]['best_ssim']['epoch'])
-    
-                test_log += 'UQI/LPIPS/NIQE/PIQUE: {:.4f}/{:.4f}/{:.2f}/{:.2f}\n'.format(avg_uqi, avg_lpips, avg_niqe, avg_pique)
-    
+
+                test_log += 'UQI: {:.4f} (Best: {:.4f}, Epoch: {})\n'.format(
+                    avg_uqi,
+                    stat_dict[name]['best_uqi']['value'],
+                    stat_dict[name]['best_uqi']['epoch'])
+                
+                test_log += 'LPIPS: {:.4f} (Best: {:.4f}, Epoch: {})\n'.format(
+                    avg_lpips,
+                    stat_dict[name]['best_lpips']['value'],
+                    stat_dict[name]['best_lpips']['epoch'])
+                
+                test_log += 'NIQE: {:.2f} (Best: {:.2f}, Epoch: {})\n'.format(
+                    avg_niqe,
+                    stat_dict[name]['best_niqe']['value'],
+                    stat_dict[name]['best_niqe']['epoch'])
+                
+                test_log += 'brisque: {:.2f} (Best: {:.2f}, Epoch: {})\n'.format(
+                    avg_brisque,
+                    stat_dict[name]['best_brisque']['value'],
+                    stat_dict[name]['best_brisque']['epoch'])
+
+
+
+                #-------------------# Log the metrics-------------------------#
                 if args.wandb:
                     wandb.log({
                         f"val/Valid PSNR {name} - ": avg_psnr,
@@ -315,13 +373,18 @@ if __name__ == '__main__':
                         f"val/UQI {name} - ": avg_uqi,
                         f"val/LPIPS {name} - ": avg_lpips,
                         f"val/NIQE {name} - ": avg_niqe,
-                        f"val/PIQUE {name} - ": avg_pique,
+                        f"val/BRISQUE {name} - ": avg_brisque,
                     })
-    
+                #----------------------------------------------------------#
+
+            # print log & flush out
             print(test_log)
             sys.stdout.flush()
-    
+
+
+            # save model
             saved_model_path = os.path.join(experiment_model_path, f'model_x{args.scale}_last.pt')
+            # torch.save(model.state_dict(), saved_model_path)
             torch.save({
                 'epoch': epoch,
                 'model_state_dict': model.state_dict(),
@@ -331,10 +394,13 @@ if __name__ == '__main__':
             }, saved_model_path)
     
             torch.set_grad_enabled(True)
+
+            # save stat dict
+            ## save training paramters
             stat_dict_name = os.path.join(experiment_path, 'stat_dict.yml')
             with open(stat_dict_name, 'w') as stat_dict_file:
                 yaml.dump(stat_dict, stat_dict_file, default_flow_style=False)
-    
+        ## update scheduler
         scheduler.step()
 
 
