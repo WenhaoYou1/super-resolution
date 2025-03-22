@@ -358,7 +358,7 @@ if __name__ == '__main__':
                     stat_dict[name]['best_niqe']['value'],
                     stat_dict[name]['best_niqe']['epoch'])
                 
-                test_log += 'brisque: {:.2f} (Best: {:.2f}, Epoch: {})\n'.format(
+                test_log += 'BRISQUE: {:.2f} (Best: {:.2f}, Epoch: {})\n'.format(
                     avg_brisque,
                     stat_dict[name]['best_brisque']['value'],
                     stat_dict[name]['best_brisque']['epoch'])
