@@ -40,7 +40,8 @@ except:
 
 # ------------------------- #
 # Initialize LPIPS model with AlexNet backbone and move it to GPU
-lpips_model = lpips.LPIPS(net='alex').cuda()
+lpips_fn = lpips.LPIPS(net='vgg').to(device)
+lpips_fn.eval()
 # ------------------------- #
 
 parser = argparse.ArgumentParser(description='Simple Super Resolution')
@@ -102,56 +103,49 @@ if __name__ == '__main__':
     
     if args.wandb:
         wandb.watch(model, criterion=loss_func, log='all')
-        
+
+
     ## resume training
     start_epoch = 1
     if args.resume is not None:
         ckpt_files = os.path.join(args.resume, 'models', "model_x3_last.pt")
         if len(ckpt_files) != 0:
-            #ckpt_files = sorted(ckpt_files, key=lambda x: int(x.replace('.pt','').split('_')[-1]))
             ckpt = torch.load(ckpt_files)
             prev_epoch = ckpt['epoch']
-
             start_epoch = prev_epoch + 1
             model.load_state_dict(ckpt['model_state_dict'])
             optimizer.load_state_dict(ckpt['optimizer_state_dict'])
             scheduler.load_state_dict(ckpt['scheduler_state_dict'])
             stat_dict = ckpt['stat_dict']
-            ## reset folder and param
             experiment_path = args.resume
             log_name = os.path.join(experiment_path, 'log.txt')
             experiment_model_path = os.path.join(experiment_path, 'models')
             print('select {}, resume training from epoch {}.'.format(ckpt_files[-1], start_epoch))
     else:
-        ## auto-generate the output logname
-        experiment_name = None
         timestamp = utils.cur_timestamp_str()
         if args.log_name is None:
-            experiment_name = '{}_x{}_p{}_m{}_c{}_{}_{}_{}_lr{}_e{}_t{}'.format(args.model, args.scale, args.patch_size, args.m_plainsr, args.c_plainsr, args.act_type, args.loss, args.optimizer, args.lr, args.epochs, timestamp)
-            # experiment_name = '{}_x{}'.format(args.model, args.scale)
+            experiment_name = '{}_x{}_p{}_m{}_c{}_{}_{}_{}_lr{}_e{}_t{}'.format(
+                args.model, args.scale, args.patch_size, args.m_plainsr, args.c_plainsr,
+                args.act_type, args.loss, args.optimizer, args.lr, args.epochs, timestamp)
         else:
             experiment_name = '{}-{}'.format(args.log_name, timestamp)
         experiment_path = os.path.join(args.log_path, experiment_name)
         log_name = os.path.join(experiment_path, 'log.txt')
         stat_dict = utils.get_stat_dict()
-        ## create folder for ckpt and stat
         if not os.path.exists(experiment_path):
             os.makedirs(experiment_path)
         experiment_model_path = os.path.join(experiment_path, 'models')
         if not os.path.exists(experiment_model_path):
             os.makedirs(experiment_model_path)
-        ## save training paramters
         exp_params = vars(args)
         exp_params_name = os.path.join(experiment_path, 'config.yml')
         with open(exp_params_name, 'w') as exp_params_file:
             yaml.dump(exp_params, exp_params_file, default_flow_style=False)
-
-    ## print architecture of model
-    time.sleep(3) # sleep 3 seconds 
+    
     sys.stdout = utils.ExperimentLogger(log_name, sys.stdout)
     print(model)
     sys.stdout.flush()
-
+    
     scaler = amp.GradScaler()
     max_norm = 0.1
     
@@ -167,21 +161,21 @@ if __name__ == '__main__':
             current_lr = scheduler.get_lr()[0]
         except:
             current_lr = scheduler.get_last_lr()[0]
-                
+    
         for step, (data) in pbar:
             if args.mixed_pred:
                 lr, hr = data
                 lr, hr = lr.to(device), hr.to(device)
                 with amp.autocast(enabled=True):
                     sr = model(lr)
-                    loss = loss_func(sr, hr)   
+                    loss = loss_func(sr, hr)
                 scaler.scale(loss).backward()
                 scaler.unscale_(optimizer)
                 torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm)
                 scaler.step(optimizer)
                 scaler.update()
                 optimizer.zero_grad()
-            else: 
+            else:
                 optimizer.zero_grad()
                 lr, hr = data
                 lr, hr = lr.to(device), hr.to(device)
@@ -191,14 +185,10 @@ if __name__ == '__main__':
                 optimizer.step()
             epoch_loss += float(loss)
     
-            pbar.set_postfix(epoch=f'{epoch}',
-                train_loss=f'{epoch_loss/(step+1):0.4f}',
-                lr=f'{current_lr:0.5f}', 
-                gpu_mem=f'{mem:0.2f} GB')
-        
+            pbar.set_postfix(epoch=f'{epoch}', train_loss=f'{epoch_loss/(step+1):0.4f}', lr=f'{current_lr:0.5f}', gpu_mem=f'{mem:0.2f} GB')
+    
         if args.wandb:
-            wandb.log({"train/Loss": epoch_loss/len(train_dataloader),  
-                       "train/LR": current_lr})
+            wandb.log({"train/Loss": epoch_loss/len(train_dataloader), "train/LR": current_lr})
     
         if epoch % args.test_every == 0:
             torch.set_grad_enabled(False)
@@ -211,9 +201,8 @@ if __name__ == '__main__':
                 name = valid_dataloader['name']
                 loader = valid_dataloader['dataloader']
                 count = 0
-                
                 pbar = tqdm(loader, total=len(loader), desc='Valid: {}'.format(args.model))
-                
+    
                 for lr, hr in pbar:
                     lr, hr = lr.to(device), hr.to(device)
                     sr = model(lr)
@@ -221,30 +210,26 @@ if __name__ == '__main__':
                     if args.normalize:
                         hr = hr.clamp(0, 1) * 255
                         sr = sr.clamp(0, 1) * 255
-                    else: 
+                    else:
                         hr = hr.clamp(0, 255)
                         sr = sr.clamp(0, 255)
     
-                    psnr = utils.calc_psnr(sr, hr)       
-                    ssim = utils.calc_ssim(sr, hr)         
+                    psnr = utils.calc_psnr(sr, hr)
+                    ssim = utils.calc_ssim(sr, hr)
                     avg_psnr += psnr
                     avg_ssim += ssim
     
-                    # 新增指标计算
-                    sr_img = sr[0].detach().cpu().clamp(0, 255).numpy().transpose(1, 2, 0).astype(np.uint8)
-                    hr_img = hr[0].detach().cpu().clamp(0, 255).numpy().transpose(1, 2, 0).astype(np.uint8)
+                    sr_img = sr[0].detach().cpu().numpy().transpose(1, 2, 0).astype(np.uint8)
+                    hr_img = hr[0].detach().cpu().numpy().transpose(1, 2, 0).astype(np.uint8)
     
-                    # UIQI
                     uqi_val = uqi(hr_img, sr_img)
                     avg_uqi += uqi_val
     
-                    # LPIPS
                     sr_lpips = sr[0].div(255.).unsqueeze(0)
                     hr_lpips = hr[0].div(255.).unsqueeze(0)
                     lpips_val = lpips_fn(sr_lpips.to(device), hr_lpips.to(device)).item()
                     avg_lpips += lpips_val
     
-                    # NIQE & PIQUE (基于 PIL 图像)
                     sr_pil = to_pil_image(sr[0].div(255.))
                     niqe_val = skimage.metrics.niqe(np.array(sr_pil))
                     avg_niqe += niqe_val
@@ -254,10 +239,9 @@ if __name__ == '__main__':
                     count += 1
                     if args.save_val_image and count < 20:
                         fname = str(count + 801).zfill(4) + '.jpg'
-                        save_img(os.path.join(experiment_model_path, './result_img/', str(epoch)+'_rec', fname),
-                                 sr[0].cpu().numpy().transpose(1, 2, 0).astype(np.uint8), color_domain='rgb')
+                        save_img(os.path.join(experiment_model_path, './result_img/', str(epoch)+'_rec', fname), sr_img, color_domain='rgb')
                     pbar.set_postfix(epoch=f'{epoch}', psnr=f'{psnr:0.2f}')
-                
+    
                 avg_psnr = round(avg_psnr/len(loader) + 5e-3, 2)
                 avg_ssim = round(avg_ssim/len(loader) + 5e-5, 4)
                 avg_uqi = round(avg_uqi/len(loader) + 1e-5, 4)
@@ -265,7 +249,6 @@ if __name__ == '__main__':
                 avg_niqe = round(avg_niqe/len(loader) + 1e-5, 4)
                 avg_pique = round(avg_pique/len(loader) + 1e-5, 4)
     
-                # 存入 stat_dict
                 stat_dict[name]['psnrs'].append(avg_psnr)
                 stat_dict[name]['ssims'].append(avg_ssim)
                 stat_dict[name]['uqis'].append(avg_uqi)
@@ -302,13 +285,28 @@ if __name__ == '__main__':
                     stat_dict[name]['best_ssim']['value'] = avg_ssim
                     stat_dict[name]['best_ssim']['epoch'] = epoch
     
+                if avg_uqi > stat_dict[name]['best_uqi']['value']:
+                    stat_dict[name]['best_uqi']['value'] = avg_uqi
+                    stat_dict[name]['best_uqi']['epoch'] = epoch
+    
+                if avg_lpips < stat_dict[name]['best_lpips']['value']:
+                    stat_dict[name]['best_lpips']['value'] = avg_lpips
+                    stat_dict[name]['best_lpips']['epoch'] = epoch
+    
+                if avg_niqe < stat_dict[name]['best_niqe']['value']:
+                    stat_dict[name]['best_niqe']['value'] = avg_niqe
+                    stat_dict[name]['best_niqe']['epoch'] = epoch
+    
+                if avg_pique < stat_dict[name]['best_pique']['value']:
+                    stat_dict[name]['best_pique']['value'] = avg_pique
+                    stat_dict[name]['best_pique']['epoch'] = epoch
+    
                 test_log += '[{}-X{}], PSNR/SSIM: {:.2f}/{:.4f} (Best: {:.2f}/{:.4f}, Epoch: {}/{})\n'.format(
                     name, args.scale, float(avg_psnr), float(avg_ssim), 
                     stat_dict[name]['best_psnr']['value'], stat_dict[name]['best_ssim']['value'], 
                     stat_dict[name]['best_psnr']['epoch'], stat_dict[name]['best_ssim']['epoch'])
     
-                test_log += 'UQI/LPIPS/NIQE/PIQUE: {:.4f}/{:.4f}/{:.2f}/{:.2f}\n'.format(
-                    avg_uqi, avg_lpips, avg_niqe, avg_pique)
+                test_log += 'UQI/LPIPS/NIQE/PIQUE: {:.4f}/{:.4f}/{:.2f}/{:.2f}\n'.format(avg_uqi, avg_lpips, avg_niqe, avg_pique)
     
                 if args.wandb:
                     wandb.log({
@@ -338,3 +336,5 @@ if __name__ == '__main__':
                 yaml.dump(stat_dict, stat_dict_file, default_flow_style=False)
     
         scheduler.step()
+
+
