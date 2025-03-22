@@ -31,6 +31,18 @@ warnings.filterwarnings("ignore")
 #Wandb and mlflow
 import wandb
 
+
+#-------------------------For Evaluate----------------------------#
+from sewar.full_ref import uqi                     # UIQI
+import lpips                                       # LPIPS
+import skimage
+from skimage import metrics                        # NIQE
+from imquality import brisque                      # PIQUE
+#-------------------------------------------------------------#
+
+from torchvision.transforms.functional import to_pil_image  # Tensor to PIL
+
+
 try:
     ## Add wandb key
     anonymous = None
@@ -38,11 +50,7 @@ except:
     anonymous = "must"
     print('To use your W&B account,\nGo to Add-ons -> Secrets and provide your W&B access token. Use the Label name as WANDB. \nGet your W&B access token from here: https://wandb.ai/authorize')
 
-# ------------------------- #
-# Initialize LPIPS model with AlexNet backbone and move it to GPU
-lpips_fn = lpips.LPIPS(net='vgg').to(device)
-lpips_fn.eval()
-# ------------------------- #
+
 
 parser = argparse.ArgumentParser(description='Simple Super Resolution')
 ## yaml configuration files
@@ -104,6 +112,12 @@ if __name__ == '__main__':
     if args.wandb:
         wandb.watch(model, criterion=loss_func, log='all')
 
+
+# ------------------------- #
+# Initialize LPIPS model with AlexNet backbone and move it to GPU
+lpips_fn = lpips.LPIPS(net='vgg').to(device)
+lpips_fn.eval()
+# ------------------------- #
 
     ## resume training
     start_epoch = 1
