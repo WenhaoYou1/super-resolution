@@ -124,13 +124,13 @@ def get_stat_dict():
         return {
             'psnrs': [], 'ssims': [],
             'uqis': [], 'lpips': [],
-            'niqes': [], 'piques': [],
+            'niqes': [], 'brisques': [],
             'best_psnr': {'value': 0.0, 'epoch': 0},
             'best_ssim': {'value': 0.0, 'epoch': 0},
             'best_uqi': {'value': 0.0, 'epoch': 0},
             'best_lpips': {'value': float('inf'), 'epoch': 0},
             'best_niqe': {'value': float('inf'), 'epoch': 0},
-            'best_pique': {'value': float('inf'), 'epoch': 0},
+            'best_brisque': {'value': float('inf'), 'epoch': 0},
         }
 
     stat_dict = {
