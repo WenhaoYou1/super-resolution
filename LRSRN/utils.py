@@ -1,3 +1,4 @@
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -120,82 +121,31 @@ class ExperimentLogger(object):
         self.log.flush()
 
 def get_stat_dict():
+    def init_dataset_stat():
+        return {
+            'psnrs': [], 'ssims': [],
+            'uqis': [], 'lpips': [],
+            'niqes': [], 'brisques': [],
+            'best_psnr': {'value': 0.0, 'epoch': 0},
+            'best_ssim': {'value': 0.0, 'epoch': 0},
+            'best_uqi': {'value': 0.0, 'epoch': 0},
+            'best_lpips': {'value': float('inf'), 'epoch': 0},
+            'best_niqe': {'value': float('inf'), 'epoch': 0},
+            'best_brisque': {'value': float('inf'), 'epoch': 0},
+        }
+
     stat_dict = {
         'epochs': 0,
         'losses': [],
         'ema_loss': 0.0,
-        'DIV2K': {
-            'psnrs': [],
-            'ssims': [],
-            'best_psnr': {
-                'value': 0.0,
-                'epoch': 0
-            },
-            'best_ssim': {
-                'value': 0.0,
-                'epoch': 0
-            }
-        },
-        'set5': {
-            'psnrs': [],
-            'ssims': [],
-            'best_psnr': {
-                'value': 0.0,
-                'epoch': 0
-            },
-            'best_ssim': {
-                'value': 0.0,
-                'epoch': 0
-            }
-        },
-        'set14': {
-            'psnrs': [],
-            'ssims': [],
-            'best_psnr': {
-                'value': 0.0,
-                'epoch': 0
-            },
-            'best_ssim': {
-                'value': 0.0,
-                'epoch': 0
-            }
-        },
-        'b100': {
-            'psnrs': [],
-            'ssims': [],
-            'best_psnr': {
-                'value': 0.0,
-                'epoch': 0
-            },
-            'best_ssim': {
-                'value': 0.0,
-                'epoch': 0
-            }
-        },
-        'u100': {
-            'psnrs': [],
-            'ssims': [],
-            'best_psnr': {
-                'value': 0.0,
-                'epoch': 0
-            },
-            'best_ssim': {
-                'value': 0.0,
-                'epoch': 0
-            }
-        },
-        'manga109': {
-            'psnrs': [],
-            'ssims': [],
-            'best_psnr': {
-                'value': 0.0,
-                'epoch': 0
-            },
-            'best_ssim': {
-                'value': 0.0,
-                'epoch': 0
-            }
-        }
+        'weights':[],
+        'history_loss':[],
+        'DIV2K': init_dataset_stat(),
+        'set5': init_dataset_stat(),
+        'set14': init_dataset_stat(),
+        'b100': init_dataset_stat(),
+        'u100': init_dataset_stat(),
+        'manga109': init_dataset_stat()
     }
     return stat_dict
 
