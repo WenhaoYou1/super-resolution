@@ -72,7 +72,7 @@ class LPIPSLoss(nn.Module):
         loss = self.loss_fn(pred, target)
         # LPIPS returns a tensor of shape [N, 1, 1, 1]; squeeze it
         return loss.mean()
-        
+    
 # class VGG_gram(nn.Module):
 #     def __init__(self):
 #         super(VGG_gram, self).__init__()
@@ -100,19 +100,81 @@ class LPIPSLoss(nn.Module):
 
 #         return loss
     
-def get_criterion(cfg, device):
-    if cfg.loss == 'l1':
+def get_criterion(loss_type, device):
+    if loss_type == 'l1':
         return nn.L1Loss().cuda(device)
-    elif cfg.loss == 'l2':
+    elif loss_type == 'l2':
         return nn.MSELoss()
-    elif cfg.loss == 'vgg':
+    elif loss_type == 'vgg':
         return VGG(device)
-    elif cfg.loss == 'psnr_loss':
+    elif loss_type == 'psnr_loss':
         return PSNRLoss().cuda(device)
-    elif cfg.loss == 'lpips':
+    elif loss_type == 'lpips':
         return LPIPSLoss(net='vgg', device=device)
-    else: 
+    else:
         raise NameError('Choose proper model name!!!')
+
+
+class DynamicWeightAveraging:
+    def __init__(self, num_losses, device, losses=None):
+        self.T = 2.0
+        self.num_losses = num_losses
+        self.loss_history = [None, None]
+        self.losses = losses
+        self.loss_function = self._initialize_losses(self.losses, device)
+
+    def _initialize_losses(self, losses, device):
+        loss_funcs = []
+        for loss_type in losses:
+            loss_funcs.append(get_criterion(loss_type, device))
+        return loss_funcs
+
+    def update_weights(self):
+        if self.loss_history[-1] is None or self.loss_history[-2] is None:
+
+            return [1.0 for _ in range(self.num_losses)]
+
+        loss_ratios = []
+        for i in range(self.num_losses):
+            ratio = self.loss_history[-1][i] / (self.loss_history[-2][i] + 1e-8)
+            loss_ratios.append(ratio)
+
+        loss_ratios = np.array(loss_ratios)
+        exp_ratios = np.exp(loss_ratios / self.T)
+        weights = self.num_losses * exp_ratios / np.sum(exp_ratios)
+        return weights.tolist()
+
+    def step(self, current_losses):
+        self.loss_history[-2] = self.loss_history[-1]
+        self.loss_history[-1] = current_losses
+
+    def compute_losses(self, model_output, target, mask=None):
+        losses = []
+        for loss_func in self.loss_function:
+            loss = loss_func(model_output, target)
+            losses.append(loss)
+        return losses
+'''
+class dwa(nn.Module):
+    def __init__(self, num_losses, device):
+        super(dwa, self).__init__()
+        self.dwa = DynamicWeightAveraging(num_losses=num_losses, device=device)
+        self.loss_function = self.dwa.loss_function
+
+    def forward(self, output, target):
+        losses = []
+        for loss_func in self.loss_function:
+            loss = loss_func(output, target)
+            losses.append(loss)
+        weights = self.dwa.update_weights()
+        weighted_loss = sum(w * l for w, l in zip(weights, losses))
+
+        #self.dwa.step([l.item() for l in losses])
+        self.dwa.step([l.detach().cpu().item() for l in losses])
+        return weighted_loss
+'''
+
+
 
 if __name__ == "__main__":
     # true = np.array([1.0, 1.2, 1.1, 1.4, 1.5, 1.8, 1.9])
