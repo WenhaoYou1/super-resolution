@@ -182,7 +182,94 @@ class PlainRepConv_deploy(nn.Module):
         y = self.transition(y + y0)
         y = self.upsampler(y) 
         return y
-                
+
+
+#---------------------------------------------ECA----------------------------------------
+class ECALayer(nn.Module):
+    def __init__(self, channel, k_size=3):
+        super(ECALayer, self).__init__()
+        self.avg_pool = nn.AdaptiveAvgPool2d(1)
+        self.conv = nn.Conv1d(1, 1, kernel_size=k_size, padding=(k_size-1)//2, bias=False)
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, x):
+        y = self.avg_pool(x)  # [N, C, 1, 1]
+        y = self.conv(y.squeeze(-1).transpose(-1, -2))  # [N, 1, C]
+        y = self.sigmoid(y).transpose(-1, -2).unsqueeze(-1)  # [N, C, 1, 1]
+        return x * y.expand_as(x)
+
+class PlainRepConvWithECA(nn.Module):
+    def __init__(self, module_nums, channel_nums, act_type, scale, colors):
+        super(PlainRepConvWithECA, self).__init__()
+        self.module_nums = module_nums
+        self.channel_nums = channel_nums
+        self.scale = scale
+        self.colors = colors
+        self.act_type = act_type
+
+        backbone = []
+        self.head = Conv3X3(inp_planes=colors, out_planes=channel_nums, act_type=act_type)
+
+        for _ in range(module_nums):
+            backbone.append(nn.Sequential(
+                RepBlock(inp_planes=channel_nums, out_planes=channel_nums, act_type=act_type),
+                ECALayer(channel_nums)
+            ))
+
+        self.backbone = nn.Sequential(*backbone)
+        self.transition = Conv3X3(inp_planes=channel_nums, out_planes=colors * scale * scale, act_type='linear')
+        self.upsampler = nn.PixelShuffle(scale)
+
+    def forward(self, x):
+        y0 = self.head(x)
+        y = self.backbone(y0)
+        y = self.transition(y + y0)
+        y = self.upsampler(y)
+        return y
+
+    def fuse_model(self):
+        for idx, blk in enumerate(self.backbone):
+            if isinstance(blk, nn.Sequential) and isinstance(blk[0], RepBlock):
+                RK, RB = blk[0].repblock_convert()
+                conv = Conv3X3(blk[0].inp_planes, blk[0].out_planes, act_type=blk[0].act_type)
+                conv.conv3x3.weight.data = RK
+                conv.conv3x3.bias.data = RB
+                if blk[0].act_type == 'prelu':
+                    conv.act.weight = blk[0].act.weight
+                blk[0] = conv.to(RK.device)
+
+class PlainRepConvWithECA_deploy(nn.Module):
+    def __init__(self, module_nums, channel_nums, act_type, scale, colors):
+        super(PlainRepConvWithECA_deploy, self).__init__()
+        self.module_nums = module_nums
+        self.channel_nums = channel_nums
+        self.scale = scale
+        self.colors = colors
+        self.act_type = act_type
+
+        backbone = []
+        self.head = Conv3X3(inp_planes=colors, out_planes=channel_nums, act_type=act_type)
+
+        for _ in range(module_nums):
+            backbone.append(nn.Sequential(
+                Conv3X3(inp_planes=channel_nums, out_planes=channel_nums, act_type=act_type),
+                ECALayer(channel_nums)
+            ))
+
+        self.backbone = nn.Sequential(*backbone)
+        self.transition = Conv3X3(inp_planes=channel_nums, out_planes=colors * scale * scale, act_type='linear')
+        self.upsampler = nn.PixelShuffle(scale)
+
+    def forward(self, x):
+        y0 = self.head(x)
+        y = self.backbone(y0)
+        y = self.transition(y + y0)
+        y = self.upsampler(y)
+        return y
+
+
+
+
 class PlainRepConv_All(nn.Module):
     def __init__(self, module_nums, channel_nums, act_type, scale, colors):
         super(PlainRepConv_All, self).__init__()
