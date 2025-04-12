@@ -1,5 +1,5 @@
 from .plainsr import PlainSR, PlainSR2
-from .plainRepConv import PlainRepConv, PlainRepConv_st01, PlainRepConv_BlockV2, PlainRepConv_All, PlainRepConvClip, PlainRepConv_deploy, PlainRepConv_BlockV2_deploy
+from .plainRepConv import ECAPlainRepConv, ECAPlainRepConv_deploy, PlainRepConv, PlainRepConv_st01, PlainRepConv_BlockV2, PlainRepConv_All, PlainRepConvClip, PlainRepConv_deploy, PlainRepConv_BlockV2_deploy
 from .plainkh import PlainKH
 from .imdn_baseline import IMDN
 from .fsrcnn import FSRCNN
@@ -10,11 +10,19 @@ def get_model(cfg, device, mode='Train'):
         model = PlainSR(module_nums=cfg.m_plainsr, channel_nums=cfg.c_plainsr, act_type=cfg.act_type, scale=cfg.scale, colors=cfg.colors)
     elif cfg.model == 'plainsr2':
         model = PlainSR2(module_nums=cfg.m_plainsr, channel_nums=cfg.c_plainsr, act_type=cfg.act_type, scale=cfg.scale, colors=cfg.colors)
+
+    
     elif cfg.model == 'PlainRepConv':
         if mode == 'Train':
             model = PlainRepConv(module_nums=cfg.m_plainsr, channel_nums=cfg.c_plainsr, act_type=cfg.act_type, scale=cfg.scale, colors=cfg.colors)
         else: 
             model = PlainRepConv_deploy(module_nums=cfg.m_plainsr, channel_nums=cfg.c_plainsr, act_type=cfg.act_type, scale=cfg.scale, colors=cfg.colors)
+    elif cfg.model == 'PlainRepConvWithECA':
+        if mode == 'Train':
+            model = ECAPlainRepConv(module_nums=cfg.m_plainsr, channel_nums=cfg.c_plainsr, act_type=cfg.act_type, scale=cfg.scale, colors=cfg.colors)
+        else:
+            model = ECAPlainRepConv_deploy(module_nums=cfg.m_plainsr, channel_nums=cfg.c_plainsr, act_type=cfg.act_type, scale=cfg.scale, colors=cfg.colors)
+            
     elif cfg.model == 'PlainRepConvClip':
         model = PlainRepConvClip(module_nums=cfg.m_plainsr, channel_nums=cfg.c_plainsr, act_type=cfg.act_type, scale=cfg.scale, colors=cfg.colors)
     elif cfg.model == 'PlainRepConv_st01':
