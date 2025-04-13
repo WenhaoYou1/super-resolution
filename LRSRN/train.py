@@ -125,7 +125,7 @@ if __name__ == '__main__':
     if (len(args.loss) > 1):
         loss_func = DynamicWeightAveraging(num_losses=len(args.loss), device=device, losses=args.loss)
     else:
-        loss_func = get_criterion(args.loss, device)
+        loss_func = get_criterion(args.loss[0], device)
 
     optimizer = get_optimizer(args, model)
     scheduler = get_scheduler(args, optimizer)
@@ -150,7 +150,8 @@ if __name__ == '__main__':
     ## resume training
     start_epoch = 1
     if args.resume is not None:
-        ckpt_files = os.path.join(args.resume, 'models', "model_x2_last.pt")
+        ckpt_filename = f"model_x{args.scale}_last.pt"
+        ckpt_files = os.path.join(args.resume, 'models', ckpt_filename)
         if len(ckpt_files) != 0:
             ckpt = torch.load(ckpt_files)
             prev_epoch = ckpt['epoch']
