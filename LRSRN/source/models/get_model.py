@@ -17,12 +17,15 @@ def get_model(cfg, device, mode='Train'):
             model = PlainRepConv(module_nums=cfg.m_plainsr, channel_nums=cfg.c_plainsr, act_type=cfg.act_type, scale=cfg.scale, colors=cfg.colors)
         else: 
             model = PlainRepConv_deploy(module_nums=cfg.m_plainsr, channel_nums=cfg.c_plainsr, act_type=cfg.act_type, scale=cfg.scale, colors=cfg.colors)
-    elif cfg.model == 'PlainRepConvWithECA':
+            
+    elif cfg.model == 'ECAPlainRepConv':
         if mode == 'Train':
             model = ECAPlainRepConv(module_nums=cfg.m_plainsr, channel_nums=cfg.c_plainsr, act_type=cfg.act_type, scale=cfg.scale, colors=cfg.colors)
         else:
             model = ECAPlainRepConv_deploy(module_nums=cfg.m_plainsr, channel_nums=cfg.c_plainsr, act_type=cfg.act_type, scale=cfg.scale, colors=cfg.colors)
-            
+
+
+
     elif cfg.model == 'PlainRepConvClip':
         model = PlainRepConvClip(module_nums=cfg.m_plainsr, channel_nums=cfg.c_plainsr, act_type=cfg.act_type, scale=cfg.scale, colors=cfg.colors)
     elif cfg.model == 'PlainRepConv_st01':
