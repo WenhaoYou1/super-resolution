@@ -61,7 +61,7 @@ class DIV2K(data.Dataset):
         self.hr_images = []
         self.lr_images = []
 
-        self.lr_filenames = sorted(glob.glob(self.LR_folder + '*.jpg'))
+        self.lr_filenames = sorted(glob.glob(self.LR_folder + '*.png'))
 
         for idx, lr_name in enumerate(self.lr_filenames):
             _name = os.path.basename(lr_name)[:-4] + '.png'
@@ -73,7 +73,9 @@ class DIV2K(data.Dataset):
             #self.imageOrgName.append(os.path.join(os.path.join(self.org_path,self.image_org_folder),base_name))
             
         assert len(self.hr_filenames) == len(self.lr_filenames)
-          
+        
+        print(len(self.hr_filenames))
+
         self.nums_trainset = len(self.hr_filenames)
 
         LEN = self.nums_trainset
@@ -91,7 +93,8 @@ class DIV2K(data.Dataset):
             os.makedirs(lr_dir)
         else:
             for i in range(LEN):
-                lr_npy_name = self.lr_filenames[i].split('/')[-1].replace('.jpg', '.npy')
+                lr_npy_name = os.path.basename(self.lr_filenames[i]).replace('.png', '.npy')
+                #lr_npy_name = self.lr_filenames[i].split('/')[-1].replace('.png', '.npy')
                 lr_npy_name = os.path.join(lr_dir, lr_npy_name)
                 self.lr_npy_names.append(lr_npy_name)
 
@@ -105,10 +108,13 @@ class DIV2K(data.Dataset):
                     hr_image = sc.rgb2ycbcr(hr_image)[:, :, 0:1]
                 hr_npy_name = self.hr_filenames[i].split('/')[-1].replace('.png', '.npy')
                 hr_npy_name = os.path.join(hr_dir, hr_npy_name)
+                
                 self.hr_npy_names.append(hr_npy_name)
                 np.save(hr_npy_name, hr_image)
         else:
             print("hr npy datas have already been prepared!, hr: {}".format(len(self.hr_npy_names)))
+        
+        print(self.hr_npy_names[3])
         ## prepare lr images
         if len(glob.glob(os.path.join(lr_dir, "*.npy"))) != len(self.lr_filenames):
             for i in range(LEN):
@@ -117,12 +123,20 @@ class DIV2K(data.Dataset):
                 lr_image = imageio.imread(self.lr_filenames[i], pilmode="RGB")
                 if self.colors == 1:
                     lr_image = sc.rgb2ycbcr(lr_image)[:, :, 0:1]
-                lr_npy_name = self.lr_filenames[i].split('/')[-1].replace('.jpg', '.npy')
+
+                lr_npy_name = os.path.basename(self.lr_filenames[i]).replace('.png', '.npy')
+                #lr_npy_name = self.lr_filenames[i].split('/')[-1].replace('.png', '.npy')
+                #print(lr_npy_name )
+                #print(lr_dir)
                 lr_npy_name = os.path.join(lr_dir, lr_npy_name)
+                #print(lr_npy_name)
                 self.lr_npy_names.append(lr_npy_name)
                 np.save(lr_npy_name, lr_image)
         else:
             print("lr npy datas have already been prepared!, lr: {}".format(len(self.lr_npy_names)))
+
+        print(self.hr_npy_names[4])
+        print(self.lr_npy_names[4])
 
     def __len__(self):
         if self.train:
