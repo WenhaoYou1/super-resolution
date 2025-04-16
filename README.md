@@ -74,16 +74,3 @@ Optional command. If you add this, it will save the SR images while inferring.
 ```bash
   --save-dir /Your_path
 ```
-
-
-### Reference:
-```
-@InProceedings{Gankhuyag_2023_CVPR,
-    author    = {Gankhuyag, Ganzorig and Yoon, Kihwan and Park, Jinman and Son, Haeng Seon and Min, Kyoungwon},
-    title     = {Lightweight Real-Time Image Super-Resolution Network for 4K Images},
-    booktitle = {Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) Workshops},
-    month     = {June},
-    year      = {2023},
-    pages     = {1746-1755}
-}
-```
