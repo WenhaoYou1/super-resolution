@@ -1,19 +1,6 @@
 <div align="center">
 
-# Lightweight Real-Time Image Super-Resolution Network for 4K Images
-
-### Page & Presentation Link
-<div>
-    <h4 align="center">
-        <a href="https://rlghksdbs.github.io/lrsrn_page/" target='_blank'>
-        <img src="https://img.shields.io/badge/🐳-Project%20Page-blue">
-        </a>
-        <a href="https://openaccess.thecvf.com/content/CVPR2023W/NTIRE/papers/Gankhuyag_Lightweight_Real-Time_Image_Super-Resolution_Network_for_4K_Images_CVPRW_2023_paper.pdf" target='_blank'>
-        <img src="https://img.shields.io/badge/arXiv-Paper-b31b1b.svg">
-        </a>
-    </h4>
-</div>
-</div>
+# Improved Lightweight Real-Time Image Super-Resolution Network for 4K Images with ECA layer
 
 ### Dependencies & Installation
 
@@ -46,15 +33,22 @@ To resume with **wandb** tracking:
 python train.py --config "configs/x3_final/l1_x3_200_div2k.yml" --gpu_ids 0 --resume_wandb 51fm1awe --resume /root/autodl-tmp/super-resolution/LRSRN/experiments/Val_X3_Best/PlainRepConv_x3
 ```
 
-### Docker Setting
-```
-docker build --tag ntire2023 .
-nvidia-docker run --name ntire2023 -it --gpus all --ipc=host --pid=host -v /your/data/path/:/dataset -v /your/sorce_code/:/source_code --shm-size=64g ntire2023:latest
-pip install -U numpy
+### Evaluation
 
-##If you use RTX A6000
-pip install torch==1.12.0+cu116 torchvision==0.13.0+cu116 torchaudio==0.12.0 --extra-index-url https://download.pytorch.org/whl/cu116
+To evaluate super-resolved images and compute PSNR/SSIM/LPIPS:
+```bash
+python Auto_sr_demo.py --model _X3 --config "configs/x3_final/ECA_l1_x3_200_div2k.yml" --checkpoint /root/autodl-tmp/super-resolution/LRSRN/experiments/Val_X3_Best/ECAPlainRepConv_x3/models/model_x3_best_submission_deploy.pt
 ```
+
+In this example, a deploy-phase model is used. `Auto_sr_demo.py` performs super-resolution on LR images and evaluates multiple benchmark datasets. By default, it evaluates the following datasets:
+```python
+["set14", "Urban100", "DIV2K100"]
+```
+You can modify this list based on your dataset setup. The script performs SR on LR X3 images and compares them with their original HR counterparts.
+
+### Model inference time
+
+You can profile inference performance by measuring per-image time and FPS with scripts like `inference_time_test.py`.
 
 ### Dataset of SR
 
@@ -67,31 +61,6 @@ Combined test dataset from Drive [Link](https://drive.google.com/file/d/1feZltvT
     - Val: DIV2K val set (full 100), Flickr val (100), GTA (90), LSDIR(100)
 
 Path of Dataset must be set in `./config/*name_of_yaml*.yaml`
-
-### Dataset preparation for Noised LR images
-You can generate LR images with compression noise:
-```bash
-## LR path & HR path must be set by manually
-python source/data/prepare_data.py 
-```
-
-### Testing
-Set parameters in `./config/config_base_test.yaml`
-```bash
-## For test your model use sr_demo to check inference time.
-python sr_demo.py
-```
-
-### Check Result
-Validation result image, Test result image, Best weight, Last weight and log files saved in `./output/{DATE_of_TODAY}/{Last_folder}` folder.
-Wandb result [WANDB](https://wandb.ai/iilab/ECCV_MAI2020_SR)
-
-### Profilling model inference time
-You can check ideal model inference time by pytorch profiling tool.
-```bash
-## If you set all settings correct
-python profiller_model.py
-```
 
 ### Reference:
 ```
