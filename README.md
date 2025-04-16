@@ -1,4 +1,3 @@
-<div align="center">
 
 # Improved Lightweight Real-Time Image Super-Resolution Network for 4K Images with ECA layer
 
