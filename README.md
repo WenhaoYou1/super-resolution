@@ -6,6 +6,40 @@
 You can download Div2k dataset from Web [Link](https://cv.snu.ac.kr/research/EDSR/DIV2K.tar)
 You can download Benchmark dataset from Web [Link](https://cv.snu.ac.kr/research/EDSR/benchmark.tar)
 
+Your dataset should be organized as follows:
+
+<b><font color="red">⚠️ Warning: Make sure the HR image and its corresponding LR image have the same name.</font></b>
+It is wrong, if HR=0001.png but LR=0001x3.png. 
+
+### 📁 Dataset Directory Structure
+```
+dataset/
+├── DIV2K/
+│   ├── DIV2K_X2/
+│   │   ├── train_HR/
+│   │   ├── train_LR/
+│   │   ├── val_HR/
+│   │   └── val_LR/
+│   ├── DIV2K_X3/
+│   └── DIV2K_X4/
+│
+├── DIV2K_unknown/
+│   ├── DIV2K_X2/
+│   │   ├── train_HR/
+│   │   ├── train_LR/
+│   │   ├── val_HR/
+│   │   └── val_LR/
+│   ├── DIV2K_X3/
+│   └── DIV2K_X4/
+│
+└── test/
+    ├── DIV2K100/
+    │   ├── HR/
+    │   └── LR_bicubic/
+    ├── Set14/
+    └── Urban100/
+```
+
 ### Dependencies & Installation
 
 Download dependencies:
